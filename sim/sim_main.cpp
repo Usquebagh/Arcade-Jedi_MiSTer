@@ -22,6 +22,7 @@ int main(int argc, char **argv) {
     int frames = argc > 1 ? atoi(argv[1]) : 60;
     int every  = argc > 2 ? atoi(argv[2]) : 10;
     bool test  = argc > 3 && !strcmp(argv[3], "test");
+    int from   = getenv("DUMP_FROM") ? atoi(getenv("DUMP_FROM")) : 1 << 30;   // dump every frame from here
 
     Vjedi_core *top = new Vjedi_core;
     top->in0   = test ? 0xef : 0xff;   // all switches released; b4 = /self-test
@@ -52,7 +53,7 @@ int main(int argc, char **argv) {
             frame++;
             printf("frame %4d  main AB %04x  snd AB %04x  outlatch %02x\n",
                    frame, top->dbg_main_ab, top->dbg_snd_ab, top->dbg_outlatch);
-            if (frame % every == 0) {
+            if (frame % every == 0 || frame >= from) {
                 char name[64];
                 snprintf(name, sizeof name, "frame_%04d.ppm", frame);
                 write_ppm(name, fb);

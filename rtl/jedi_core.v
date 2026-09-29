@@ -15,9 +15,16 @@
 // enable edge that ends the cycle, so DI holds data for the previous cycle's address,
 // which is what the core expects from synchronous RAM.
 module jedi_core #(
-    parameter MAIN_ROM_INIT = "",
-    parameter SND_ROM_INIT  = "",
-    parameter TX_ROM_INIT   = ""
+    parameter MAIN_ROM_INIT  = "",
+    parameter SND_ROM_INIT   = "",
+    parameter TX_ROM_INIT    = "",
+    parameter BG1_ROM_INIT   = "",   // 136030-126 (playfield planes, first half)
+    parameter BG2_ROM_INIT   = "",   // 136030-127
+    parameter SPR1_ROM_INIT  = "",   // 136030-130 + -131
+    parameter SPR2_ROM_INIT  = "",   // 136030-128 + -129
+    parameter PROM1_INIT     = "",   // 136030-117 (horizontal smoothing)
+    parameter PROM2_INIT     = "",   // 136030-118 (vertical smoothing)
+    parameter V_START        = 16    // first visible counter line (see jedi_timing.v)
 ) (
     input            clk,           // 48.384 MHz
     input            reset,
@@ -69,12 +76,12 @@ assign ce_pix = pdiv == 3'd0;   // one clock after outputs update
 // ---------------------------------------------------------------------------
 // Video timing and IRQ generation (32V)
 // ---------------------------------------------------------------------------
-wire [8:0] h, v;
+wire [8:0] h, v, y;   // v = hardware line counter, y = display line (v - 16)
 wire t_hblank, t_vblank, t_hsync, t_vsync;
 
-jedi_timing timing (
+jedi_timing #(.V_START(V_START)) timing (
     .clk(clk), .reset(reset), .ce_pix(ce_pix_int),
-    .h(h), .v(v),
+    .h(h), .v(v), .y(y),
     .hblank(t_hblank), .vblank(t_vblank), .hsync(t_hsync), .vsync(t_vsync)
 );
 
@@ -144,12 +151,13 @@ always @(posedge clk) begin
     m_nov_q <= novram[m_ab[7:0]];
 end
 
-// Playfield RAM 2000-27FF (video port unused until milestone 2)
-wire [7:0] m_pf_q;
+// Playfield RAM 2000-27FF: 000-3FF tile code low, 400-7FF bank/flip bits
+reg  [10:0] pf_vaddr = 0;
+wire  [7:0] m_pf_q, pf_q;
 dpram #(.AW(11)) pf_ram (
     .clk(clk),
     .a_addr(m_ab[10:0]), .a_din(m_do), .a_we(m_wr & m_sel_pf), .a_dout(m_pf_q),
-    .b_addr(11'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(pf_vaddr), .b_din(8'd0), .b_we(1'b0), .b_dout(pf_q)
 );
 
 // Colour RAM: 2800-2BFF low byte, 2C00-2FFF high nibble
@@ -173,6 +181,19 @@ dpram #(.AW(12)) alpha_ram (
     .clk(clk),
     .a_addr(m_ab[11:0]), .a_din(m_do), .a_we(m_wr & m_sel_alpha), .a_dout(m_alpha_q),
     .b_addr(tx_ram_addr), .b_din(8'd0), .b_we(1'b0), .b_dout(tx_code)
+);
+
+// Private copy of the motion object area (37C0-3BFF) for the sprite engine, so it does
+// not compete with the alphanumerics fetch for the alpha RAM video port.
+// Copy address = alpha offset - 0x400: code 3C0+n, flags 400+n, Y 440+n, X 4C0+n.
+wire [11:0] m_alpha_off = m_ab[11:0];
+wire [11:0] m_mo_off    = m_alpha_off - 12'h400;
+reg  [10:0] mo_vaddr = 0;
+wire  [7:0] mo_q;
+dpram #(.AW(11)) mo_ram (
+    .clk(clk),
+    .a_addr(m_mo_off[10:0]), .a_din(m_do), .a_we(m_wr & m_sel_alpha & (m_alpha_off >= 12'h400)), .a_dout(),
+    .b_addr(mo_vaddr), .b_din(8'd0), .b_we(1'b0), .b_dout(mo_q)
 );
 
 // Program ROM: 5 x 16 KB = 221 (8000), 222 (C000), 123/124/122 (banks 0-2 at 4000)
@@ -312,10 +333,30 @@ always @(posedge clk) begin
 end
 
 // ---------------------------------------------------------------------------
-// Video: alphanumerics layer -> colour RAM -> RGB
-// Eight master clocks per pixel; fetches are sequenced within the pixel slot and the
-// result is output on the next slot (all outputs delayed by exactly one pixel).
+// Video
+//
+// Eight master clocks per pixel slot. Pixel p (counter value h = p) is assembled over
+// three slots and output at the end of slot p+2:
+//   slot p   : alphanumerics fetch; playfield pair engine (pairs p&~1, p|1) runs across
+//              the two slots of the pair
+//   slot p+1 : motion object line buffer read (and clear) for p
+//   slot p+2 : colour RAM lookup {alpha, MO, PF} -> RGB, registered on the slot's last clock
+// hsync/vsync/blanking and vid_h/vid_v are delayed to match.
 // ---------------------------------------------------------------------------
+localparam V_TOTAL = 262;
+
+reg [8:0] h_d1 = 0, h_d2 = 0, v_d1 = 0, v_d2 = 0;
+reg [3:0] hb_d, vb_d, hs_d, vs_d;   // [0] = 1 slot, [1] = 2 slots
+always @(posedge clk) if (ce_pix_int) begin
+    h_d1 <= h;  h_d2 <= h_d1;
+    v_d1 <= y;  v_d2 <= v_d1;   // display line
+    hb_d <= {hb_d[2:0], t_hblank};
+    vb_d <= {vb_d[2:0], t_vblank};
+    hs_d <= {hs_d[2:0], t_hsync};
+    vs_d <= {vs_d[2:0], t_vsync};
+end
+
+// ---- Alphanumerics (2 bpp 8x8, 64 x 30, no scroll) --------------------------
 reg  [12:0] tx_rom_addr = 0;
 wire  [7:0] tx_gfx;
 dpram #(.AW(13), .INIT(TX_ROM_INIT)) tx_rom (
@@ -328,15 +369,227 @@ dpram #(.AW(13), .INIT(TX_ROM_INIT)) tx_rom (
 wire [1:0] tx_pix = h[1:0] == 2'd0 ? tx_gfx[7:6] :
                     h[1:0] == 2'd1 ? tx_gfx[5:4] :
                     h[1:0] == 2'd2 ? tx_gfx[3:2] : tx_gfx[1:0];
+reg  [1:0] tx_d1 = 0, tx_d2 = 0;
 
 always @(posedge clk) begin
     case (pdiv)
-        3'd0: tx_ram_addr <= {1'b0, v[7:3], h[8:3]};                 // 64 x 30 tiles
-        3'd2: tx_rom_addr <= {alpha_bank, tx_code, v[2:0], h[2]};    // 16 bytes/tile
-        3'd4: col_addr    <= {tx_pix, 4'd0 /* MO */, 4'd0 /* PF */};
+        3'd0: tx_ram_addr <= {1'b0, y[7:3], h[8:3]};
+        3'd2: tx_rom_addr <= {alpha_bank, tx_code, y[2:0], h[2]};   // 16 bytes/tile
+        default: ;
+    endcase
+    if (ce_pix_int) begin tx_d1 <= tx_pix; tx_d2 <= tx_d1; end
+end
+
+// ---- Playfield + PIXI smoothing ---------------------------------------------
+// 512 x 512 scrolling map of 16x16 tiles (8x8 source pixels doubled both ways), 4 bpp.
+// Processed per pixel pair (MAME draw_background_and_text). t = step within the pair.
+wire [3:0] pf_t  = {h[0], pdiv};
+wire [8:0] pf_xe = {h[8:1], 1'b0};
+wire [8:0] pf_sx = pf_xe + hscroll;
+wire [8:0] pf_sy = y + vscroll;
+
+reg  [14:0] bg_addr = 0;
+wire  [7:0] bg1_q, bg2_q;
+dpram #(.AW(15), .INIT(BG1_ROM_INIT)) bg1_rom (
+    .clk(clk), .a_addr(bg_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(bg1_q),
+    .b_addr(15'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+);
+dpram #(.AW(15), .INIT(BG2_ROM_INIT)) bg2_rom (
+    .clk(clk), .a_addr(bg_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(bg2_q),
+    .b_addr(15'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+);
+
+// 82S137 smoothing PROMs, 4 pages of 256 x 4 selected by the PIXI register
+reg  [9:0] prom1_addr = 0, prom2_addr = 0;
+wire [7:0] prom1_q, prom2_q;
+dpram #(.AW(10), .INIT(PROM1_INIT)) prom1 (
+    .clk(clk), .a_addr(prom1_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(prom1_q),
+    .b_addr(10'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+);
+dpram #(.AW(10), .INIT(PROM2_INIT)) prom2 (
+    .clk(clk), .a_addr(prom2_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(prom2_q),
+    .b_addr(10'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+);
+
+// PIXI II line buffer (2149 at 2A): previous line's pre-smoothed pixels
+reg  [8:0] pxl_raddr = 0, pxl_waddr = 0;
+reg  [3:0] pxl_wdata = 0;
+reg        pxl_we = 0;
+wire [7:0] pxl_q;
+dpram #(.AW(9)) pixi_line (
+    .clk(clk),
+    .a_addr(pxl_waddr), .a_din({4'd0, pxl_wdata}), .a_we(pxl_we), .a_dout(),
+    .b_addr(pxl_raddr), .b_din(8'd0), .b_we(1'b0), .b_dout(pxl_q)
+);
+wire [3:0] pxl_prev = y == 0 ? 4'd0 : pxl_q[3:0];   // MAME clears it at the top of the frame
+
+reg  [7:0] pf_code_lo = 0;
+reg  [1:0] pf_pixsel = 0;
+reg  [3:0] bg_col = 0, bg_last = 0;
+reg  [3:0] pf_even = 0, pf_odd = 0;
+
+// Pixel select within the two bitplane bytes: {d1[7-s], d1[3-s], d2[7-s], d2[3-s]}
+wire [3:0] bg_pix = pf_pixsel == 2'd0 ? {bg1_q[7], bg1_q[3], bg2_q[7], bg2_q[3]} :
+                    pf_pixsel == 2'd1 ? {bg1_q[6], bg1_q[2], bg2_q[6], bg2_q[2]} :
+                    pf_pixsel == 2'd2 ? {bg1_q[5], bg1_q[1], bg2_q[5], bg2_q[1]} :
+                                        {bg1_q[4], bg1_q[0], bg2_q[4], bg2_q[0]};
+
+always @(posedge clk) begin
+    pxl_we <= 0;
+    case (pf_t)
+        4'd0: pf_vaddr <= {1'b0, pf_sy[8:4], pf_sx[8:4]};          // tile code low
+        4'd1: pf_vaddr <= {1'b1, pf_sy[8:4], pf_sx[8:4]};          // bank/flip bits
+        4'd2: pf_code_lo <= pf_q;
+        4'd3: begin                                                  // pf_q = bank byte
+            // code = {b1, b3, b0, lo}; b2 = X flip (sx ^= 0x0F)
+            bg_addr   <= {pf_q[1], pf_q[3], pf_q[0], pf_code_lo, pf_sy[3:1], pf_sx[3] ^ pf_q[2]};
+            pf_pixsel <= pf_sx[2:1] ^ {2{pf_q[2]}};
+        end
+        4'd5: begin
+            bg_col     <= bg_pix;
+            prom1_addr <= {pixi_page, bg_last, bg_pix};             // horizontal smoothing
+            pxl_raddr  <= pf_xe;
+        end
+        4'd7: begin
+            prom2_addr <= {pixi_page, pxl_prev, prom1_q[3:0]};      // vertical smoothing
+            pxl_raddr  <= pf_xe + 9'd1;
+            pxl_waddr  <= pf_xe;
+            pxl_wdata  <= prom1_q[3:0];
+            pxl_we     <= 1;
+        end
+        4'd9: begin
+            pf_even    <= prom2_q[3:0];
+            prom2_addr <= {pixi_page, pxl_prev, bg_col};
+            pxl_waddr  <= pf_xe + 9'd1;
+            pxl_wdata  <= bg_col;
+            pxl_we     <= 1;
+            bg_last    <= bg_col;
+        end
+        4'd11: pf_odd <= prom2_q[3:0];
+        default: ;
+    endcase
+    if (pf_t == 4'd0 && h == 0) bg_last <= 0;   // start of line
+end
+
+// ---- Motion objects ---------------------------------------------------------
+// 48 sprites, 8 wide, 16 or 32 tall, 4 bpp. During line v the engine renders line v+1
+// into one half of a double line buffer while the other half is displayed and cleared.
+reg  [15:0] spr_addr = 0;
+wire  [7:0] spr1_q, spr2_q;
+dpram #(.AW(16), .INIT(SPR1_ROM_INIT)) spr1_rom (
+    .clk(clk), .a_addr(spr_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(spr1_q),
+    .b_addr(16'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+);
+dpram #(.AW(16), .INIT(SPR2_ROM_INIT)) spr2_rom (
+    .clk(clk), .a_addr(spr_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(spr2_q),
+    .b_addr(16'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+);
+
+reg  [9:0] mol_waddr = 0, mol_raddr = 0;
+reg  [3:0] mol_wdata = 0;
+reg        mol_we = 0, mol_clr = 0;
+wire [7:0] mol_q;
+dpram #(.AW(10)) mo_line (
+    .clk(clk),
+    .a_addr(mol_waddr), .a_din({4'd0, mol_wdata}), .a_we(mol_we), .a_dout(),
+    .b_addr(mol_raddr), .b_din(8'd0), .b_we(mol_clr), .b_dout(mol_q)
+);
+
+// Renderer. Kicked off on the clock that ends counter line v (about to wrap to v+1),
+// so it renders counter line v+2 while v+1 is displayed. Only visible lines
+// (counter 16..255) are rendered; the target is expressed as a display line.
+wire [9:0] mo_v2  = {1'b0, v} + 10'd2;
+wire [8:0] mo_v2w = mo_v2 >= V_TOTAL ? mo_v2 - V_TOTAL : mo_v2[8:0];
+wire [8:0] mo_line_next = mo_v2w - V_START;   // >= 240 (incl. wrap) = not visible
+reg  [7:0] mo_target = 0;           // screen line being rendered (only lines < 240)
+reg        mo_busy = 0;
+reg  [5:0] mo_n = 0;                // sprite number
+reg  [4:0] mo_st = 0;
+reg  [7:0] sp_y = 0, sp_flags = 0, sp_code = 0;
+reg  [8:0] sp_x0 = 0;
+reg  [7:0] d1a = 0, d2a = 0, d1b = 0, d2b = 0;
+
+wire       sp_tall  = sp_flags[3];
+wire       sp_flipx = sp_flags[4];
+wire       sp_flipy = sp_flags[5];
+wire [7:0] sp_top   = 8'd241 - sp_y - (sp_tall ? 8'd16 : 8'd0);
+wire [7:0] sp_dy    = mo_target - sp_top;
+wire [5:0] sp_size  = sp_tall ? 6'd32 : 6'd16;
+wire [4:0] sp_row   = sp_flipy ? sp_size[4:0] - 5'd1 - sp_dy[4:0] : sp_dy[4:0];
+wire [10:0] sp_code_full = {sp_flags[2], sp_flags[6], sp_flags[1], sp_code[7:1],
+                            sp_code[0] & ~sp_tall};
+wire [15:0] sp_gfx = {sp_code_full, 5'd0} + {10'd0, sp_row, 1'b0};
+
+// Pixel j (0..7) of the current row, bits 7..4 of the colour RAM address
+wire [2:0] mo_j = mo_st[2:0];       // pixel index during states 16..23
+wire [7:0] pd1  = mo_j[2] ? d1b : d1a;
+wire [7:0] pd2  = mo_j[2] ? d2b : d2a;
+wire [1:0] pk   = mo_j[1:0];
+wire [3:0] mo_pix_col = {pd1[7 - pk], pd1[3 - pk], pd2[7 - pk], pd2[3 - pk]};
+wire [8:0] mo_pos = sp_flipx ? sp_x0 + 9'd7 - {6'd0, mo_j} : sp_x0 + {6'd0, mo_j};
+
+always @(posedge clk) begin
+    mol_we <= 0;
+    if (ce_pix_int && h == 9'd383) begin      // start rendering the next line
+        mo_busy   <= mo_line_next < 9'd240;
+        mo_target <= mo_line_next[7:0];
+        mo_n      <= 0;
+        mo_st     <= 0;
+    end else if (mo_busy) begin
+        mo_st <= mo_st + 5'd1;
+        case (mo_st)
+            5'd0:  mo_vaddr <= 11'h440 + mo_n;                 // Y
+            5'd1:  mo_vaddr <= 11'h400 + mo_n;                 // flags
+            5'd2:  begin sp_y <= mo_q; mo_vaddr <= 11'h3C0 + mo_n; end   // code
+            5'd3:  begin sp_flags <= mo_q; mo_vaddr <= 11'h4C0 + mo_n; end // X low
+            5'd4:  sp_code <= mo_q;
+            5'd5:  sp_x0 <= {sp_flags[0], mo_q} - 9'd2;
+            5'd6:  if (sp_dy >= {2'b0, sp_size}) begin         // not on this line
+                       mo_st <= 0;
+                       mo_n  <= mo_n + 6'd1;
+                       if (mo_n == 6'd47) mo_busy <= 0;
+                   end else
+                       spr_addr <= sp_gfx;
+            5'd7:  spr_addr <= sp_gfx + 16'd1;
+            5'd8:  begin d1a <= spr1_q; d2a <= spr2_q; end
+            5'd9:  begin d1b <= spr1_q; d2b <= spr2_q; mo_st <= 5'd16; end
+            5'd23: begin
+                       mo_st <= 0;
+                       mo_n  <= mo_n + 6'd1;
+                       if (mo_n == 6'd47) mo_busy <= 0;
+                   end
+            default: ;
+        endcase
+        // States 16..23 write pixels 0..7 (transparent colour 0 is skipped;
+        // later sprites overwrite earlier ones, as in MAME)
+        if (mo_st[4] && mo_pix_col != 0) begin
+            mol_waddr <= {mo_target[0], mo_pos};
+            mol_wdata <= mo_pix_col;
+            mol_we    <= 1;
+        end
+    end
+end
+
+// Display side: read pixel h_d1 of line v_d1 during slot p+1, then clear it
+reg [3:0] mo_cur = 0;
+always @(posedge clk) begin
+    mol_clr <= 0;
+    case (pdiv)
+        3'd0: mol_raddr <= {v_d1[0], h_d1};
+        3'd2: begin
+            mo_cur  <= mol_q[3:0];
+            mol_clr <= h_d1 < 9'd296;
+        end
         default: ;
     endcase
 end
+
+// ---- Colour RAM lookup and output --------------------------------------------
+// No priority logic: {alpha[1:0], MO[3:0], PF[3:0]} addresses the 1024-entry palette.
+wire [3:0] pf_cur = h_d2[0] ? pf_odd : pf_even;
+
+always @(posedge clk)
+    if (pdiv == 3'd0) col_addr <= {tx_d2, mo_cur, pf_cur};
 
 // IRGB 3-3-3-3: gun = 5 * value * intensity (0..245)
 wire [2:0] c_i = col_hi[3:1];
@@ -347,21 +600,61 @@ wire [5:0] r_x = c_r * c_i, g_x = c_g * c_i, b_x = c_b * c_i;
 
 always @(posedge clk) begin
     if (ce_pix_int) begin
-        if (video_off | t_hblank | t_vblank) begin
+        if (video_off | hb_d[1] | vb_d[1]) begin
             red <= 0; green <= 0; blue <= 0;
         end else begin
             red   <= {2'b0, r_x} * 8'd5;
             green <= {2'b0, g_x} * 8'd5;
             blue  <= {2'b0, b_x} * 8'd5;
         end
-        hsync  <= t_hsync;
-        vsync  <= t_vsync;
-        hblank <= t_hblank;
-        vblank <= t_vblank;
-        vid_h  <= h;
-        vid_v  <= v;
+        hsync  <= hs_d[1];
+        vsync  <= vs_d[1];
+        hblank <= hb_d[1];
+        vblank <= vb_d[1];
+        vid_h  <= h_d2;
+        vid_v  <= v_d2;
     end
 end
+
+`ifdef JEDI_TRACE
+always @(posedge clk) begin
+    if (m_wr & m_sel_vctl)
+        $display("TRACE vctl %04x=%02x line %0d h %0d", m_ab, m_do, v, h);
+    if (v32_last != v[5])
+        $display("TRACE 32V=%0d line %0d", v[5], v);
+    if (main_irq_ack)
+        $display("TRACE irqack line %0d h %0d", v, h);
+end
+`endif
+`ifdef JEDI_TRACE_PC
+// Main CPU instruction trace (opcode addresses) for frames PC_FROM..PC_TO,
+// frame counted as in sim_main.cpp (VBLANK rising edges).
+integer trace_frame = 0;
+reg     trace_vb = 0;
+reg [15:0] trace_prev_ab = 0;
+always @(posedge clk) begin
+    trace_vb <= t_vblank;
+    if (t_vblank && !trace_vb) trace_frame <= trace_frame + 1;
+    if (ce_main) begin
+        trace_prev_ab <= m_ab;
+        if (main_cpu.state == 6'd12 && trace_frame >= `PC_FROM && trace_frame < `PC_TO)
+            $display("PC %04X", trace_prev_ab);
+    end
+end
+`endif
+`ifdef JEDI_TRACE_IO
+// Main CPU I/O reads/writes and sound CPU POKEY reads (for divergence hunting)
+always @(posedge clk) begin
+    if (m_rd & (m_sel_sack | m_sel_adc | (m_sel_in & m_ab[0])))
+        $display("IO m_rd %04x=%02x line %0d", m_ab, m_bus_q, v);
+    if (m_wr & m_sel_ctl & (m_ab[9:7] == 3'b110))
+        $display("IO snd_cmd %02x line %0d", m_do, v);
+    if (s_wr & s_sel_io1 && s_ab[10:8] == 3'b100)
+        $display("IO snd_ack %02x line %0d", s_do, v);
+    if (s_rd & s_sel_pokey)
+        $display("IO pokey_rd %04x line %0d", s_ab, v);
+end
+`endif
 
 assign dbg_main_ab  = m_ab;
 assign dbg_snd_ab   = s_ab;
