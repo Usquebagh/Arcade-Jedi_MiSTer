@@ -1,0 +1,15 @@
+# Never commit ROMs or Atari documentation
+*.zip
+*.rom
+*.bin
+roms/
+*.pdf
+
+# Build / simulation output
+output_files/
+db/
+incremental_db/
+sim/obj_dir/
+sim/out/
+*.vcd
+*.fst
