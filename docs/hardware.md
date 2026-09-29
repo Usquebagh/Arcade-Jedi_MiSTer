@@ -44,9 +44,17 @@ accumulator (2.5 / 48.384). Main CPU timing relative to video is asynchronous on
   **296 pixels** (x 0–295).
 - **V counter**: 10J/10H LS163s clocked by /256H, reloaded from **sync PROM 82S129 at 9H**
   (addressed by V bits), whose outputs are latched in 9F (LS175) → VBLANK, VSYNC, /VSYNC, reload.
-- **Open question — 9H PROM contents are not in the MAME ROM set.** MAME assumes 262 lines
-  (60 Hz) with **240 visible lines** (y 0–239). Start with: 262 total, VBLANK lines 240–261,
-  VSYNC ~3 lines in VBLANK. Revisit if a PROM dump or a scope capture turns up.
+- **9H PROM contents are not in the MAME ROM set.** Chosen layout: 262 lines (60.11 Hz),
+  **visible = counter lines 16–255** (display line = V − 16), VBLANK 256–15, VSYNC 0–2.
+  Evidence: the game writes the playfield scroll registers ~10 lines after the 256V IRQ
+  (traced in simulation). With visible = 0–239 the top 10 lines would show the previous
+  frame's scroll (a tear MAME hides by rendering whole frames); with 16–255 the IRQ lands
+  exactly at VBLANK start and all updates finish before the first visible line.
+  Revisit if a PROM dump or a scope capture turns up.
+- **RNG:** the main CPU's idle loop at DE95 is an LFSR stepped continuously between IRQs, so
+  random numbers depend on exact CPU/video timing (and on real hardware, on the phase between
+  the 10 MHz and 12.096 MHz crystals). Attract-mode demos therefore diverge from MAME after
+  ~11 s; MAME also runs at 60.00 Hz rather than the schematic's 60.11 Hz.
 - **Composite sync** = HSYNC XOR /VSYNC (8F LS86). `BLANK` = HBLANK | VBLANK | VIDOFF (13M/13L).
 - **IRQ** (both CPUs): driven by 32V. Asserted while 32V = 0, cleared when 32V = 1 → four IRQ
   edges per frame. Each CPU has its own ack (main 1E00, sound 1000) that also clears it.
