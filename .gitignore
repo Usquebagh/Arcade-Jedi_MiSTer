@@ -13,3 +13,14 @@ sim/obj_dir/
 sim/out/
 *.vcd
 *.fst
+build.log
+build_id.v
+*.qws
+*.rpt
+*.summary
+*.done
+*.smsg
+*.jdi
+*.sld
+*.pin
+*.sof

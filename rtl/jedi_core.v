@@ -48,6 +48,21 @@ module jedi_core #(
     output reg [8:0] vid_h,         // counter position of the current output pixel
     output reg [8:0] vid_v,
 
+    // Audio: 4 x POKEY + TMS5220 speech, signed mono
+    output signed [15:0] audio,
+
+    // ROM download (MiSTer ioctl, MRA order - see docs/hardware.md)
+    input     [18:0] dn_addr,
+    input      [7:0] dn_data,
+    input            dn_wr,
+
+    // NOVRAM access for save/load (256 bytes)
+    input      [7:0] nv_addr,
+    input      [7:0] nv_din,
+    input            nv_we,
+    output reg [7:0] nv_dout,
+    output           nv_changed,     // pulses when the game writes NOVRAM
+
     // Debug
     output    [15:0] dbg_main_ab,
     output    [15:0] dbg_snd_ab,
@@ -150,6 +165,29 @@ always @(posedge clk) begin
     if (m_wr & m_sel_nov) novram[m_ab[7:0]] <= m_do;
     m_nov_q <= novram[m_ab[7:0]];
 end
+always @(posedge clk) begin                     // second port: MiSTer NVRAM save/load
+    if (nv_we) novram[nv_addr] <= nv_din;
+    nv_dout <= novram[nv_addr];
+end
+assign nv_changed = m_wr & m_sel_nov;
+
+// ROM download decode
+wire [18:0] dn_snd_a  = dn_addr - 19'h14000;
+wire [18:0] dn_tx_a   = dn_addr - 19'h1C000;
+wire [18:0] dn_bg1_a  = dn_addr - 19'h1E000;
+wire [18:0] dn_bg2_a  = dn_addr - 19'h26000;
+wire [18:0] dn_spr1_a = dn_addr - 19'h2E000;
+wire [18:0] dn_spr2_a = dn_addr - 19'h3E000;
+wire [18:0] dn_prm_a  = dn_addr - 19'h4E000;
+wire dn_main = dn_wr && dn_addr < 19'h14000;
+wire dn_snd  = dn_wr && dn_addr >= 19'h14000 && dn_addr < 19'h1C000;
+wire dn_tx   = dn_wr && dn_addr >= 19'h1C000 && dn_addr < 19'h1E000;
+wire dn_bg1  = dn_wr && dn_addr >= 19'h1E000 && dn_addr < 19'h26000;
+wire dn_bg2  = dn_wr && dn_addr >= 19'h26000 && dn_addr < 19'h2E000;
+wire dn_spr1 = dn_wr && dn_addr >= 19'h2E000 && dn_addr < 19'h3E000;
+wire dn_spr2 = dn_wr && dn_addr >= 19'h3E000 && dn_addr < 19'h4E000;
+wire dn_prm1 = dn_wr && dn_addr >= 19'h4E000 && dn_addr < 19'h4E400;
+wire dn_prm2 = dn_wr && dn_addr >= 19'h4E400 && dn_addr < 19'h4E800;
 
 // Playfield RAM 2000-27FF: 000-3FF tile code low, 400-7FF bank/flip bits
 reg  [10:0] pf_vaddr = 0;
@@ -204,7 +242,7 @@ wire [7:0] m_rom_q;
 dpram #(.AW(17), .DEPTH(5 * 16384), .INIT(MAIN_ROM_INIT)) main_rom (
     .clk(clk),
     .a_addr({rom_page, m_ab[13:0]}), .a_din(8'd0), .a_we(1'b0), .a_dout(m_rom_q),
-    .b_addr(17'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_addr[16:0]), .b_din(dn_data), .b_we(dn_main), .b_dout()
 );
 
 // Latches between the CPUs (5E/4E LS374 + 3E LS279 flags)
@@ -273,14 +311,68 @@ dpram #(.AW(11)) snd_ram (
 dpram #(.AW(15), .INIT(SND_ROM_INIT)) snd_rom (
     .clk(clk),
     .a_addr(s_ab[14:0]), .a_din(8'd0), .a_we(1'b0), .a_dout(s_rom_q),
-    .b_addr(15'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_snd_a[14:0]), .b_din(dn_data), .b_we(dn_snd), .b_dout()
 );
 
-wire speech_ready_n = 1'b0;   // TMS5220 stub: always ready
+// ---- TMS5220 speech (sheet 7A) ----------------------------------------------
+// 1100 data latch (4D), 1200/1300 /WS strobe on/off (A8), 1500 D0 = speech enable
+// (gates the chip's supply on the real board; modelled as output mute),
+// 1C00 b7 = /READY. Clock 12.096 MHz / 2 / 9 = 672 kHz = 48.384 MHz / 72.
+reg  [6:0] tms_div = 0;
+wire       tms_ce = tms_div == 7'd71;
+always @(posedge clk) tms_div <= tms_ce ? 7'd0 : tms_div + 7'd1;
+
+reg  [7:0] speech_data = 0;
+reg        speech_ws_n = 1;
+reg        speech_en = 0;
+wire       speech_ready_n;
+wire signed [13:0] speech_out;
+
+`ifdef VERILATOR
+// Simulation speed-up: give the (large, netlisted) TMS5220 its own 672 kHz clock so
+// Verilator evaluates it once per chip clock instead of on every 48 MHz clock.
+reg tms_clk = 0;
+always @(posedge clk) if (tms_div == 7'd35 || tms_ce) tms_clk <= ~tms_clk;
+wire tms_osc = tms_clk;
+wire tms_ena = 1'b1;
+`else
+wire tms_osc = clk;
+wire tms_ena = tms_ce;
+`endif
+
+TMS5220 tms (
+    .I_OSC(tms_osc), .I_ENA(tms_ena),
+    .I_WSn(speech_ws_n), .I_RSn(1'b1), .I_DATA(1'b1), .I_TEST(1'b1),
+    .I_DBUS(speech_data), .O_DBUS(),
+    .O_RDYn(speech_ready_n), .O_INTn(),
+    .O_M0(), .O_M1(), .O_ADD8(), .O_ADD4(), .O_ADD2(), .O_ADD1(), .O_ROMCLK(),
+    .O_T11(), .O_IO(), .O_PRMOUT(),
+    .O_SPKR(speech_out)
+);
+
+// Quad POKEY custom at 0800-083F: chip = A5..A4, register = A3..A0 (mirrored)
+wire [7:0] pokey_q [0:3];
+wire [5:0] pokey_audio [0:3];
+genvar gp;
+generate for (gp = 0; gp < 4; gp = gp + 1) begin : pokeys
+    pokey pokey_i (
+        .clk(clk), .ce(ce_snd), .reset(s_reset),
+        .addr(s_ab[3:0]), .din(s_do),
+        .we(s_wr & s_sel_pokey & (s_ab[5:4] == gp)),
+        .dout(pokey_q[gp]), .audio(pokey_audio[gp])
+    );
+end endgenerate
+
+// Mix: POKEY sum 0..240 -> +/-7680 around zero; speech is 14-bit signed.
+// Relative levels are provisional (to be matched against MAME's mixer).
+wire [7:0]  pokey_sum = pokey_audio[0] + pokey_audio[1] + pokey_audio[2] + pokey_audio[3];
+wire signed [15:0] pokey_s = $signed({2'b0, pokey_sum, 6'd0}) - 16'sd7680;
+wire signed [15:0] speech_s = (speech_en & ~s_reset) ? {{2{speech_out[13]}}, speech_out} : 16'sd0;
+assign audio = pokey_s + speech_s;
 
 wire [7:0] s_bus_q =
     s_sel_ram   ? s_ram_q :
-    s_sel_pokey ? 8'h00 :                                       // POKEY stub
+    s_sel_pokey ? pokey_q[s_ab[5:4]] :
     s_sel_io2   ? (!s_ab[10] ? sound_latch :
                    !s_ab[0]  ? {speech_ready_n, 7'd0} :
                                {sound_full, sack_full, 6'd0}) :
@@ -320,6 +412,15 @@ always @(posedge clk) begin
 
         // Main CPU reads the sound acknowledge latch -> clear its flag
         if (m_rd & m_sel_sack) sack_full <= 0;
+
+        // Sound CPU speech writes: 1100 data, 1200/1300 strobe, 1500 enable
+        if (s_wr & s_sel_io1) case (s_ab[10:8])
+            3'b001: speech_data <= s_do;
+            3'b010: speech_ws_n <= 0;
+            3'b011: speech_ws_n <= 1;
+            3'b101: speech_en   <= s_do[0];
+            default: ;
+        endcase
 
         // Sound CPU writes 1000-17FF
         if (s_wr & s_sel_io1 && s_ab[10:8] == 3'b100) begin
@@ -362,7 +463,7 @@ wire  [7:0] tx_gfx;
 dpram #(.AW(13), .INIT(TX_ROM_INIT)) tx_rom (
     .clk(clk),
     .a_addr(tx_rom_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(tx_gfx),
-    .b_addr(13'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_tx_a[12:0]), .b_din(dn_data), .b_we(dn_tx), .b_dout()
 );
 
 // 4 pixels per byte, leftmost in the MSBs
@@ -392,11 +493,11 @@ reg  [14:0] bg_addr = 0;
 wire  [7:0] bg1_q, bg2_q;
 dpram #(.AW(15), .INIT(BG1_ROM_INIT)) bg1_rom (
     .clk(clk), .a_addr(bg_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(bg1_q),
-    .b_addr(15'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_bg1_a[14:0]), .b_din(dn_data), .b_we(dn_bg1), .b_dout()
 );
 dpram #(.AW(15), .INIT(BG2_ROM_INIT)) bg2_rom (
     .clk(clk), .a_addr(bg_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(bg2_q),
-    .b_addr(15'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_bg2_a[14:0]), .b_din(dn_data), .b_we(dn_bg2), .b_dout()
 );
 
 // 82S137 smoothing PROMs, 4 pages of 256 x 4 selected by the PIXI register
@@ -404,11 +505,11 @@ reg  [9:0] prom1_addr = 0, prom2_addr = 0;
 wire [7:0] prom1_q, prom2_q;
 dpram #(.AW(10), .INIT(PROM1_INIT)) prom1 (
     .clk(clk), .a_addr(prom1_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(prom1_q),
-    .b_addr(10'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_prm_a[9:0]), .b_din(dn_data), .b_we(dn_prm1), .b_dout()
 );
 dpram #(.AW(10), .INIT(PROM2_INIT)) prom2 (
     .clk(clk), .a_addr(prom2_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(prom2_q),
-    .b_addr(10'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_prm_a[9:0]), .b_din(dn_data), .b_we(dn_prm2), .b_dout()
 );
 
 // PIXI II line buffer (2149 at 2A): previous line's pre-smoothed pixels
@@ -478,11 +579,11 @@ reg  [15:0] spr_addr = 0;
 wire  [7:0] spr1_q, spr2_q;
 dpram #(.AW(16), .INIT(SPR1_ROM_INIT)) spr1_rom (
     .clk(clk), .a_addr(spr_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(spr1_q),
-    .b_addr(16'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_spr1_a[15:0]), .b_din(dn_data), .b_we(dn_spr1), .b_dout()
 );
 dpram #(.AW(16), .INIT(SPR2_ROM_INIT)) spr2_rom (
     .clk(clk), .a_addr(spr_addr), .a_din(8'd0), .a_we(1'b0), .a_dout(spr2_q),
-    .b_addr(16'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
+    .b_addr(dn_spr2_a[15:0]), .b_din(dn_data), .b_we(dn_spr2), .b_dout()
 );
 
 reg  [9:0] mol_waddr = 0, mol_raddr = 0;

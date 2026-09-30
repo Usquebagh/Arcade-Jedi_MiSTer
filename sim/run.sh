@@ -7,6 +7,8 @@ cd "$(dirname "$0")"
 ROMS=${JEDI_ROMS:-$HOME/roms/jedi}
 mkdir -p out/roms
 python3 mkroms.py "$ROMS" out/roms > /dev/null
+# Verilog netlist of the VHDL TMS5220 for Verilator (regenerated when the VHDL changes)
+[ out/tms5220_gen.v -nt ../rtl/tms5220/TMS5220.vhd ] || bash gen_tms5220.sh > /dev/null
 
 verilator --cc --exe --build -j "$(nproc)" -O3 --x-assign fast --x-initial fast \
   -Wno-fatal -Wno-WIDTH -Wno-CASEINCOMPLETE -Wno-UNOPTFLAT -Wno-PINCONNECTEMPTY \
@@ -18,7 +20,8 @@ verilator --cc --exe --build -j "$(nproc)" -O3 --x-assign fast --x-initial fast 
   -Mdir obj_dir ${JEDI_TRACE:+-DJEDI_TRACE} ${JEDI_TRACE_IO:+-DJEDI_TRACE_IO} \
   ${V_START:+-GV_START=$V_START} \
   ${PC_FROM:+-DJEDI_TRACE_PC -DPC_FROM=$PC_FROM -DPC_TO=$PC_TO} \
-  ../rtl/cpu6502/ALU.v ../rtl/cpu6502/cpu.v ../rtl/dpram.v ../rtl/jedi_timing.v ../rtl/jedi_core.v \
+  ../rtl/cpu6502/ALU.v ../rtl/cpu6502/cpu.v ../rtl/dpram.v ../rtl/jedi_timing.v ../rtl/pokey.v \
+  out/tms5220_gen.v ../rtl/jedi_core.v \
   sim_main.cpp > out/build.log 2>&1 || { tail -30 out/build.log; exit 1; }
 grep -E "%(Error|Warning)" out/build.log | grep -v "cpu6502" | head -20 || true
 

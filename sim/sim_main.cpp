@@ -1,6 +1,10 @@
 // Verilator testbench for jedi_core: runs N frames and dumps selected frames as PPM.
 // Usage: Vjedi_core <frames> <dump_every> [test]
 //   test = hold the self-test switch on (service mode)
+// Environment:
+//   DUMP_FROM=n          also dump every frame from n on
+//   INPUTS=f:v,f:v,...   from frame f, drive the 0C00 switch byte with hex value v
+// Audio is written to audio.raw (signed 16-bit mono, 48 kHz).
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -30,6 +34,22 @@ int main(int argc, char **argv) {
     top->adc_x = 0x80;
     top->adc_y = 0x80;
 
+    // Input script
+    std::vector<std::pair<int, int>> script;
+    if (const char *s = getenv("INPUTS")) {
+        int f, v, n;
+        while (sscanf(s, "%d:%x%n", &f, &v, &n) == 2) {
+            script.push_back({f, v});
+            s += n;
+            if (*s == ',') s++;
+        }
+    }
+    size_t next_input = 0;
+
+    FILE *audio = fopen("audio.raw", "wb");
+    int64_t audio_acc = 0;
+    uint32_t audio_n = 0;
+
     std::vector<uint8_t> fb(W * H * 3, 0);
     int frame = 0;
     bool last_vblank = false;
@@ -44,6 +64,14 @@ int main(int argc, char **argv) {
         top->clk = 1; top->eval();
         cycles++;
 
+        // 48 kHz audio: 48.384 MHz / 1008, box-filtered
+        audio_acc += (int16_t)top->audio;
+        if (++audio_n == 1008) {
+            int16_t s = (int16_t)(audio_acc / 1008);
+            fwrite(&s, 2, 1, audio);
+            audio_acc = audio_n = 0;
+        }
+
         if (!top->ce_pix) continue;
         if (!top->hblank && !top->vblank && top->vid_h < W && top->vid_v < H) {
             uint8_t *p = &fb[(top->vid_v * W + top->vid_h) * 3];
@@ -51,6 +79,8 @@ int main(int argc, char **argv) {
         }
         if (top->vblank && !last_vblank) {
             frame++;
+            while (next_input < script.size() && script[next_input].first <= frame)
+                top->in0 = script[next_input++].second;
             printf("frame %4d  main AB %04x  snd AB %04x  outlatch %02x\n",
                    frame, top->dbg_main_ab, top->dbg_snd_ab, top->dbg_outlatch);
             if (frame % every == 0 || frame >= from) {
@@ -62,6 +92,7 @@ int main(int argc, char **argv) {
         last_vblank = top->vblank;
     }
 
+    fclose(audio);
     printf("%llu clocks, %.2f s emulated\n", (unsigned long long)cycles, cycles / 48.384e6);
     delete top;
     return 0;
