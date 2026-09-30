@@ -1,47 +1,73 @@
-# Return of the Jedi (Atari, 1984) for MiSTer
+# Return of the Jedi (Arcade, 1984) for MiSTer FPGA
 
-FPGA recreation of Atari's *Return of the Jedi* arcade hardware for the MiSTer (DE10-Nano).
+An FPGA implementation of Atari's **Return of the Jedi** arcade game for the [MiSTer FPGA](https://github.com/MiSTer-devel/Main_MiSTer/wiki) platform.
 
-**Status: early build.** Playable on MiSTer; so far tested over HDMI only.
+Atari's third Star Wars arcade game swapped vectors for colourful raster graphics: race speeder bikes through the forests of Endor, fly the Millennium Falcon, and pilot an AT-ST — all in a diagonal, scrolling 3D view with a distinctive soft, "smoothed" look.
 
-| Part | State |
+> **Early build.** Playable, and tested on MiSTer over HDMI. Feedback and bug reports are welcome via [Issues](https://github.com/Usquebagh/Arcade-Jedi_MiSTer/issues).
+
+---
+
+## Original Hardware
+
+| Subsystem | Original Hardware | FPGA Implementation |
+|---|---|---|
+| **Main CPU** | MOS 6502 @ 2.5 MHz (own 10 MHz crystal) | Arlet Ottens' verilog-6502 |
+| **Sound CPU** | MOS 6502 @ 1.512 MHz | Arlet Ottens' verilog-6502 |
+| **Video** | Alphanumerics, scrolling playfield, 48 motion objects, 1024-colour palette with no priority logic | `jedi_core.v`, from the SP-227 schematics |
+| **Smoothing** | PIXI II board: two 82S137 PROMs + line buffer blend each background pixel with its neighbours | Modelled in `jedi_core.v` |
+| **Sound** | Quad POKEY custom + TI TMS5220 speech | `pokey.v` + d18c7db's TMS5220 |
+| **Controls** | Flight yoke (2-axis analog) + trigger and thumb buttons | Analog stick, mouse, or d-pad |
+| **NOVRAM** | 2 × X2212 (high scores, settings) | Saved to the SD card via MiSTer NVRAM |
+
+Notes on the hardware and design decisions are in [docs/hardware.md](docs/hardware.md).
+
+---
+
+## Controls
+
+| Input | Function |
 |---|---|
-| Main 6502, sound 6502, memory maps, latches, IRQs | done |
-| Video: alphanumerics, playfield, PIXI smoothing, motion objects, colour RAM | done — pixel-identical to MAME 0.268 in attract mode |
-| Sound: 4 × POKEY, TMS5220 speech | done — tested on MiSTer |
-| Flight yoke (analog stick / mouse / digital), buttons, coins | done — tested on MiSTer |
-| NOVRAM (high scores, settings) save/load | implemented, not yet confirmed |
-| Analog / CRT video output | untested |
+| **Analog Stick** | Yoke |
+| **A** | Trigger — fires, and starts the game after inserting a coin |
+| **B / X** | Left / right thumb buttons |
+| **Select / R** | Coin L / Coin R |
 
-## Installing
+The **Yoke Controls** OSD page selects Analog Stick, Mouse, Digital Centering, Digital Relative or Auto, plus sensitivity and Y-axis inversion.
 
-Download from [Releases](https://github.com/Usquebagh/Arcade-Jedi_MiSTer/releases), then:
+**Service Mode:** set it On in the OSD and choose Reset to enter Atari's self-test; set it Off and Reset to return to the game.
 
-1. Copy `Jedi_<date>.rbf` to `/media/fat/_Arcade/cores/`.
-2. Copy `Return of the Jedi.mra` to `/media/fat/_Arcade/`.
-3. Put the MAME `jedi.zip` ROM set in `/media/fat/games/mame/`.
+**High scores:** turn on **Autosave NVRAM** in the OSD, or use **Save NVRAM**.
 
-Controls: analog stick = yoke; A = trigger (also starts the game), B / X = thumb buttons,
-Select = coin. Yoke input mode (analog / mouse / digital) is in the OSD.
+---
 
-## Building
+## ROMs
 
-```bash
-./build.sh            # Quartus Lite 17.0.2 in Docker (theypsilon/quartus-lite-c5:17.0.2)
-sim/run.sh 600 30     # Verilator simulation; frames to sim/out/ (needs ROMs in ~/roms/jedi)
-sim/attract_check.sh  # pixel comparison against MAME reference captures
+```
+ROMs are not included. Use the MAME "jedi" set.
+
+/_Arcade/Return of the Jedi.mra
+/_Arcade/cores/Jedi_YYYYMMDD.rbf
+/games/mame/jedi.zip
 ```
 
-Hardware notes and design decisions: [docs/hardware.md](docs/hardware.md).
+---
 
-## Credits and licences
+## Compilation
 
-This core is released under the **GPL-3.0** (see individual file headers).
+Quartus Prime Lite 17.0 targeting the DE10-Nano's Cyclone V. Open `Arcade-Jedi.qpf` and compile, or run `./build.sh` to build in Docker. A Verilator simulation is in `sim/`.
 
-- 6502 CPU: [Arlet Ottens' verilog-6502](https://github.com/Arlet/verilog-6502) (permissive licence, see `rtl/cpu6502/cpu.v`), with a small change for clock-enable use.
-- TMS5220: [d18c7db's TMS5220_FPGA](https://github.com/d18c7db/TMS5220_FPGA) (GPL-3.0), modified for GHDL synthesis compatibility (see file header).
-- Yoke input adapter: from [Videodr0me's Star Wars core](https://github.com/MiSTer-devel/Arcade-StarWars_MiSTer) (GPL-3.0).
-- MiSTer framework (`sys/`): [MiSTer-devel Template](https://github.com/MiSTer-devel/Template_MiSTer) (GPL-2.0+).
-- Hardware reference: Atari SP-227 schematics / TM-227 manual, and MAME's `jedi.cpp` (Dan Boris, Aaron Giles).
+---
 
-ROMs are not included.
+## Credits
+
+- **Return of the Jedi (Arcade):** Dennis Harper (design / programming), Susan G. McBride (graphics), Synthia Petroka (audio), Mike Mahar (software support) — Atari, 1984
+- **6502 CPU:** Arlet Ottens
+- **TMS5220:** d18c7db
+- **Yoke input:** Videodr0me ([Star Wars core](https://github.com/Videodr0me/Arcade-StarWars_MiSTer))
+- **Reference:** MAME `jedi` driver by Dan Boris and Aaron Giles
+- **MiSTer Platform:** Sorgelig and the MiSTer community
+
+## License
+
+GPL-3.0. See individual source files for their respective licenses.
