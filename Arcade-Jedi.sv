@@ -63,8 +63,8 @@ localparam CONF_STR = {
 	"T[16],Save NVRAM;",
 	"-;",
 	"R[0],Reset;",
-	"J1,Trigger,Left Thumb,Right Thumb,Coin L,Coin R;",
-	"jn,A,B,X,Select,R;",
+	"J1,Trigger,Left Thumb,Right Thumb,Coin L,Coin R,Aux Coin;",
+	"jn,A,B,X,Select,R,Start;",
 	"V,v",`BUILD_DATE
 };
 
@@ -142,10 +142,11 @@ wire m_lthumb  = joy[5];
 wire m_rthumb  = joy[6];
 wire m_coin_l  = joy[7];
 wire m_coin_r  = joy[8];
+wire m_auxcoin = joy[9];   // also advances the self-test screens
 
 // 0C00: b7 coin R, b6 coin L, b5 aux coin, b4 /self-test, b3 spare (reads 0 in MAME),
 //       b2 /L thumb, b1 /trigger, b0 /R thumb - all active low
-wire [7:0] in0 = {~m_coin_r, ~m_coin_l, 1'b1, ~status[6], 1'b0, ~m_lthumb, ~m_trigger, ~m_rthumb};
+wire [7:0] in0 = {~m_coin_r, ~m_coin_l, ~m_auxcoin, ~status[6], 1'b0, ~m_lthumb, ~m_trigger, ~m_rthumb};
 
 // Flight yoke: analog stick / mouse / digital, via Videodr0me's Star Wars adapter.
 // TICK_BITS 18 keeps its digital step rate as designed (it was written for 12 MHz).

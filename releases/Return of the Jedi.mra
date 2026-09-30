@@ -23,8 +23,8 @@
 	<players>1</players>
 	<joystick>Analog</joystick>
 	<special_controls>yoke</special_controls>
-	<num_buttons>5</num_buttons>
-	<buttons default="A,B,X,Select,R" names="Trigger,Left Thumb,Right Thumb,Coin L,Coin R"></buttons>
+	<num_buttons>6</num_buttons>
+	<buttons default="A,B,X,Select,R,Start" names="Trigger,Left Thumb,Right Thumb,Coin L,Coin R,Aux Coin"></buttons>
 
 	<!-- Layout must match the download decode in rtl/jedi_core.v -->
 	<rom index="0" md5="none" zip="jedi.zip">
