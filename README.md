@@ -33,7 +33,7 @@ Notes on the hardware and design decisions are in [docs/hardware.md](docs/hardwa
 | **B / X** | Left / right thumb buttons |
 | **Select / R** | Coin L / Coin R |
 
-The **Yoke Controls** OSD page selects Analog Stick, Mouse, Digital Centering, Digital Relative or Auto, plus sensitivity and Y-axis inversion.
+The **Yoke Controls** OSD page selects Analog Stick, Mouse, Digital Centering, Digital Relative or Auto, with separate Analog Sensitivity and Digital Speed settings and Y-axis inversion.
 
 **Service Mode:** set it On in the OSD and choose Reset to enter Atari's self-test; set it Off and Reset to return to the game.
 

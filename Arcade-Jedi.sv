@@ -54,7 +54,8 @@ localparam CONF_STR = {
 	"P1,Yoke Controls;",
 	"P1-;",
 	"P1O[10:8],Input,Analog Stick,Mouse,Digital Centering,Digital Relative,Auto;",
-	"P1O[13:11],Sensitivity,1.0x,0.75x,0.5x,0.25x,0.125x,1.25x,1.5x,2.0x;",
+	"P1O[13:11],Analog Sensitivity,1.0x,0.75x,0.5x,0.25x,0.125x,1.25x,1.5x,2.0x;",
+	"P1O[20:18],Digital Speed,1.0x,0.75x,0.5x,0.25x,0.125x,1.25x,1.5x,2.0x;",
 	"P1O[14],Y-Axis,Normal,Inverted;",
 	"-;",
 	"O[6],Service Mode,Off,On;",
@@ -147,9 +148,9 @@ wire m_coin_r  = joy[8];
 wire [7:0] in0 = {~m_coin_r, ~m_coin_l, 1'b1, ~status[6], 1'b0, ~m_lthumb, ~m_trigger, ~m_rthumb};
 
 // Flight yoke: analog stick / mouse / digital, via Videodr0me's Star Wars adapter.
-// It produces signed axes; the ADC0809 wants offset binary centred on 0x80.
+// TICK_BITS 18 keeps its digital step rate as designed (it was written for 12 MHz).
 wire [7:0] yoke_x, yoke_y;
-starwars_yoke_input yoke_input
+starwars_yoke_input #(.TICK_BITS(18)) yoke_input
 (
 	.clk_sys(clk_sys),
 	.reset(reset),
@@ -161,10 +162,25 @@ starwars_yoke_input yoke_input
 	.down(joy[2]),
 	.input_mode(status[10:8]),
 	.sensitivity(status[13:11]),
+	.digital_sensitivity(status[20:18]),
 	.invert_y(status[14]),
 	.yoke_x(yoke_x),
 	.yoke_y(yoke_y)
 );
+
+// Signed yoke axes -> ADC0809 values. Scaled by 7/8 to 0x10..0xEF so they stay inside
+// the game's steering window (calibrated centre +/- 0x70) and its min/max calibration
+// (pre-loaded as 0x11/0xEF in jedi_core's NOVRAM) can never be pulled off-centre.
+function [7:0] yoke_to_adc(input [7:0] axis);
+	reg signed [10:0] scaled;
+	begin
+		scaled = ($signed({{3{axis[7]}}, axis}) * 11'sd7) >>> 3;
+		yoke_to_adc = 8'h80 + scaled[7:0];
+	end
+endfunction
+
+wire [7:0] adc_x = yoke_to_adc(yoke_x);
+wire [7:0] adc_y = yoke_to_adc(yoke_y);
 
 ////////////////////   CORE   ///////////////////
 
@@ -182,8 +198,8 @@ jedi_core core
 
 	.in0(in0),
 	.tilt(1'b0),
-	.adc_x(yoke_x ^ 8'h80),
-	.adc_y(yoke_y ^ 8'h80),
+	.adc_x(adc_x),
+	.adc_y(adc_y),
 
 	.red(r),
 	.green(g),

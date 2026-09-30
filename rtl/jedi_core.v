@@ -155,12 +155,23 @@ dpram #(.AW(11)) main_ram (
     .b_addr(11'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
 );
 
-// NOVRAM (2 x X2212, 256 x 4 each). Store/recall not modelled yet; power-on contents
-// match MAME's defaults (0x0F fill, 0x50-0x5F zero) so the checksum is invalid.
+// NOVRAM (2 x X2212, 256 x 4 each). Store/recall not modelled; the MiSTer saves the
+// whole array instead. Power-on contents follow MAME (0x0F fill, 0x50-0x5F zero) so the
+// game's checksums fail and it installs defaults - except for the yoke calibration block
+// (57-5A: X min/max, Y min/max; checksum at 5E, routine DF38). All-zero data has a
+// valid checksum there, so MAME's fill makes the game load min = max = 0: the centre
+// sits at 0 and the steering window wraps (bike stuck, left/right dead) until the
+// stick has been swept both ways. Pre-load a valid, centred calibration instead,
+// matching the 0x10-0xEF range the MiSTer yoke is scaled to.
 reg [7:0] novram [0:255];
 reg [7:0] m_nov_q;
 integer i;
-initial for (i = 0; i < 256; i = i + 1) novram[i] = (i >= 8'h50 && i < 8'h60) ? 8'h00 : 8'h0f;
+initial begin
+    for (i = 0; i < 256; i = i + 1) novram[i] = (i >= 8'h50 && i < 8'h60) ? 8'h00 : 8'h0f;
+    novram[8'h57] = 8'h11;  novram[8'h58] = 8'hEF;   // X min / max
+    novram[8'h59] = 8'h11;  novram[8'h5A] = 8'hEF;   // Y min / max
+    novram[8'h5E] = 8'h02;                           // checksum (DF38)
+end
 always @(posedge clk) begin
     if (m_wr & m_sel_nov) novram[m_ab[7:0]] <= m_do;
     m_nov_q <= novram[m_ab[7:0]];
@@ -330,7 +341,7 @@ wire signed [13:0] speech_out;
 
 `ifdef VERILATOR
 // Simulation speed-up: give the (large, netlisted) TMS5220 its own 672 kHz clock so
-// Verilator evaluates it once per chip clock instead of on every 48 MHz clock.
+// the simulator evaluates it once per chip clock instead of on every 48 MHz clock.
 reg tms_clk = 0;
 always @(posedge clk) if (tms_div == 7'd35 || tms_ce) tms_clk <= ~tms_clk;
 wire tms_osc = tms_clk;
@@ -741,6 +752,22 @@ always @(posedge clk) begin
         if (main_cpu.state == 6'd12 && trace_frame >= `PC_FROM && trace_frame < `PC_TO)
             $display("PC %04X", trace_prev_ab);
     end
+end
+`endif
+`ifdef JEDI_WATCH
+// Print the last values the main CPU wrote to up to four RAM addresses, once per frame.
+// Define JEDI_WATCH plus W0..W3 (16-bit addresses).
+reg [7:0] watch_val [0:3];
+reg       watch_vb = 0;
+initial begin watch_val[0] = 0; watch_val[1] = 0; watch_val[2] = 0; watch_val[3] = 0; end
+always @(posedge clk) begin
+    watch_vb <= t_vblank;
+    if (m_wr && m_ab == `W0) watch_val[0] <= m_do;
+    if (m_wr && m_ab == `W1) watch_val[1] <= m_do;
+    if (m_wr && m_ab == `W2) watch_val[2] <= m_do;
+    if (m_wr && m_ab == `W3) watch_val[3] <= m_do;
+    if (t_vblank && !watch_vb)
+        $display("WATCH %02x %02x %02x %02x", watch_val[0], watch_val[1], watch_val[2], watch_val[3]);
 end
 `endif
 `ifdef JEDI_TRACE_IO

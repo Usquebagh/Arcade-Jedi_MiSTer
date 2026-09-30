@@ -4,6 +4,7 @@
 // Environment:
 //   DUMP_FROM=n          also dump every frame from n on
 //   INPUTS=f:v,f:v,...   from frame f, drive the 0C00 switch byte with hex value v
+//   YOKE=f:x:y,...       from frame f, drive the ADC X/Y values (hex)
 // Audio is written to audio.raw (signed 16-bit mono, 48 kHz).
 #include <cstdio>
 #include <cstdlib>
@@ -46,6 +47,18 @@ int main(int argc, char **argv) {
     }
     size_t next_input = 0;
 
+    struct YokeStep { int frame, x, y; };
+    std::vector<YokeStep> yoke;
+    if (const char *s = getenv("YOKE")) {
+        int f, x, y, n;
+        while (sscanf(s, "%d:%x:%x%n", &f, &x, &y, &n) == 3) {
+            yoke.push_back({f, x, y});
+            s += n;
+            if (*s == ',') s++;
+        }
+    }
+    size_t next_yoke = 0;
+
     FILE *audio = fopen("audio.raw", "wb");
     int64_t audio_acc = 0;
     uint32_t audio_n = 0;
@@ -81,6 +94,11 @@ int main(int argc, char **argv) {
             frame++;
             while (next_input < script.size() && script[next_input].first <= frame)
                 top->in0 = script[next_input++].second;
+            while (next_yoke < yoke.size() && yoke[next_yoke].frame <= frame) {
+                top->adc_x = yoke[next_yoke].x;
+                top->adc_y = yoke[next_yoke].y;
+                next_yoke++;
+            }
             printf("frame %4d  main AB %04x  snd AB %04x  outlatch %02x\n",
                    frame, top->dbg_main_ab, top->dbg_snd_ab, top->dbg_outlatch);
             if (frame % every == 0 || frame >= from) {

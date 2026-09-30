@@ -2,11 +2,17 @@
 //  Star Wars flight-yoke input adapter
 //
 //  Written 2026 by Videodr0me
+//
+//  Modified 2026 for Arcade-Jedi_MiSTer: separate sensitivity for the digital
+//  modes, and a TICK_BITS parameter so the digital step rate can be kept the
+//  same at other clk_sys frequencies (16 at 12 MHz as in Star Wars; 18 at 48 MHz).
 //============================================================================
 
 `default_nettype none
 
-module starwars_yoke_input
+module starwars_yoke_input #(
+	parameter TICK_BITS = 16
+)
 (
 	input  wire        clk_sys,
 	input  wire        reset,
@@ -17,7 +23,8 @@ module starwars_yoke_input
 	input  wire        up,
 	input  wire        down,
 	input  wire  [2:0] input_mode,
-	input  wire  [2:0] sensitivity,
+	input  wire  [2:0] sensitivity,          // analog stick and mouse
+	input  wire  [2:0] digital_sensitivity,  // d-pad modes
 	input  wire        invert_y,
 	output logic [7:0] yoke_x,
 	output logic [7:0] yoke_y
@@ -184,7 +191,7 @@ module starwars_yoke_input
 		(right ? AXIS_Q3_MAX : AXIS_Q3_MIN) : 12'sd0;
 	wire signed [11:0] digital_target_y = digital_y_active ?
 		(digital_down ? AXIS_Q3_MAX : AXIS_Q3_MIN) : 12'sd0;
-	wire [5:0] digital_step_q3 = {gain_eighths(sensitivity), 1'b0};
+	wire [5:0] digital_step_q3 = {gain_eighths(digital_sensitivity), 1'b0};
 
 	logic [2:0] mode_q;
 	logic [1:0] auto_source;
@@ -196,7 +203,7 @@ module starwars_yoke_input
 	logic signed [11:0] mouse_y_q3;
 	logic signed [11:0] digital_x_q3;
 	logic signed [11:0] digital_y_q3;
-	logic [15:0] digital_tick_div;
+	logic [TICK_BITS-1:0] digital_tick_div;
 
 	wire [2:0] requested_mode = (input_mode <= INPUT_AUTO) ?
 		input_mode : INPUT_ANALOG;
@@ -208,7 +215,7 @@ module starwars_yoke_input
 	wire analog_motion =
 		analog_axis_moved(analog_x_raw, analog_reference_x) ||
 		analog_axis_moved(analog_y_raw, analog_reference_y);
-	wire digital_tick = digital_tick_div == 16'd0;
+	wire digital_tick = digital_tick_div == '0;
 
 	logic signed [8:0] selected_x;
 	logic signed [8:0] selected_y;
@@ -253,7 +260,7 @@ module starwars_yoke_input
 			mouse_y_q3 <= 12'sd0;
 			digital_x_q3 <= 12'sd0;
 			digital_y_q3 <= 12'sd0;
-			digital_tick_div <= 16'd0;
+			digital_tick_div <= '0;
 		end else begin
 			mouse_toggle_q <= mouse[24];
 			directions_q <= directions;

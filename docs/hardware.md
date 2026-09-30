@@ -156,9 +156,24 @@ ROMs are loaded via the MiSTer ioctl download from `jedi.zip` (MAME 0.289 set) u
 Analogue flight yoke → ADC0809 channels (Y on 0, X on 2), centre 0x80. Three buttons
 (L thumb, fire, R thumb). On MiSTer: analogue stick → ADC value, with digital-joystick fallback.
 
+**Yoke calibration (game code, fixed ROM):**
+- `F11C`: ADC sequencer — start ch 2, read X → `$F0`; start ch 0, read Y → `$F1`.
+- `F003`: auto-calibration. Min/max per axis live in RAM `$0706/$0707` (X) and
+  `$0708/$0709` (Y); a reading outside them moves that limit outward by 1 per call.
+  `F13C` shrinks a range that reaches `$E0` or wider.
+- `904C`: steering uses the *midpoint* of min/max with a ±`$70` window. If the midpoint
+  leaves roughly `$70`–`$8F`, the window edges wrap in 8-bit arithmetic and the reading
+  pins to one side.
+- Calibration is kept in NOVRAM `$57–$5A` with its own checksum at `$5E` (sum routine
+  `DF38`); defaults `$60/$A0` (`E020`) are used only when that checksum fails. Saved by `E375`.
+- **Pitfall:** MAME's NOVRAM fill (`$50–$5F` = 0) gives this block a *valid* checksum, so
+  the game loads min = max = 0 and steering is stuck until the stick has been swept both
+  ways. The core pre-loads a valid centred calibration (`$11/$EF`, checksum `$02`) and
+  scales the MiSTer yoke to `$10–$EF` so the calibration cannot drift off-centre.
+
 ## Open questions
 
 1. 9H sync PROM contents → exact VBLANK/VSYNC/line count (assume 262/240).
 2. Exact HBLANK/HSYNC positions and sprite X/Y offsets relative to the counters.
 3. Quad-POKEY custom vs 4 discrete POKEYs — assume identical to 4 × POKEY (MAME does).
-4. X2212 NOVRAM store/recall semantics → map to MiSTer NVRAM save.
+4. X2212 NOVRAM store/recall semantics → the MiSTer saves the whole array instead.
