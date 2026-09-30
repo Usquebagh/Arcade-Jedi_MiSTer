@@ -2,22 +2,23 @@
 
 FPGA recreation of Atari's *Return of the Jedi* arcade hardware for the MiSTer (DE10-Nano).
 
-**Status: in development — not yet tested on hardware.**
+**Status: early build.** Playable on MiSTer; so far tested over HDMI only.
 
 | Part | State |
 |---|---|
 | Main 6502, sound 6502, memory maps, latches, IRQs | done |
 | Video: alphanumerics, playfield, PIXI smoothing, motion objects, colour RAM | done — pixel-identical to MAME 0.268 in attract mode |
-| Sound: 4 × POKEY | done — pitch/rhythm match MAME |
-| Speech: TMS5220 | integrated, being verified |
-| Flight yoke (analog stick / mouse / digital), buttons, coins | wired, needs hardware test |
-| NOVRAM (high scores, settings) save/load | wired, needs hardware test |
-| MiSTer integration (MRA, ROM loading, OSD, video/audio) | first build |
+| Sound: 4 × POKEY, TMS5220 speech | done — tested on MiSTer |
+| Flight yoke (analog stick / mouse / digital), buttons, coins | done — tested on MiSTer |
+| NOVRAM (high scores, settings) save/load | implemented, not yet confirmed |
+| Analog / CRT video output | untested |
 
 ## Installing
 
-1. Copy `releases/Arcade-Jedi_<date>.rbf` to `/media/fat/_Arcade/cores/` as `Jedi_<date>.rbf`.
-2. Copy `releases/Return of the Jedi.mra` to `/media/fat/_Arcade/`.
+Download from [Releases](https://github.com/Usquebagh/Arcade-Jedi_MiSTer/releases), then:
+
+1. Copy `Jedi_<date>.rbf` to `/media/fat/_Arcade/cores/`.
+2. Copy `Return of the Jedi.mra` to `/media/fat/_Arcade/`.
 3. Put the MAME `jedi.zip` ROM set in `/media/fat/games/mame/`.
 
 Controls: analog stick = yoke; A = trigger (also starts the game), B / X = thumb buttons,
