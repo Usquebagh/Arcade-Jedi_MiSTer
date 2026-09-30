@@ -63,6 +63,10 @@ module jedi_core #(
     output reg [7:0] nv_dout,
     output           nv_changed,     // pulses when the game writes NOVRAM
 
+    // Cheats (MiSTer ioctl index 255): codes applied to main CPU reads
+    input    [128:0] cheat_code,
+    input            cheat_reset,
+
     // Debug
     output    [15:0] dbg_main_ab,
     output    [15:0] dbg_snd_ab,
@@ -285,7 +289,13 @@ wire [7:0] m_bus_q =
     m_sel_alpha ? m_alpha_q :
     m_sel_rom   ? m_rom_q : 8'hff;
 
-always @(posedge clk) if (ce_main) m_di <= m_bus_q;
+wire [7:0] m_bus_cheat;
+jedi_cheats cheats (
+    .clk(clk), .reset(cheat_reset), .code(cheat_code),
+    .addr(m_ab), .din(m_bus_q), .dout(m_bus_cheat)
+);
+
+always @(posedge clk) if (ce_main) m_di <= m_bus_cheat;
 
 // ---------------------------------------------------------------------------
 // Sound CPU
@@ -751,6 +761,19 @@ always @(posedge clk) begin
         trace_prev_ab <= m_ab;
         if (main_cpu.state == 6'd12 && trace_frame >= `PC_FROM && trace_frame < `PC_TO)
             $display("PC %04X", trace_prev_ab);
+    end
+end
+`endif
+`ifdef JEDI_RAMDUMP
+// Dump main work RAM (0000-07FF) every 30 frames from frame RD_FROM, to ram_NNNN.hex
+integer rd_frame = 0;
+reg     rd_vb = 0;
+always @(posedge clk) begin
+    rd_vb <= t_vblank;
+    if (t_vblank && !rd_vb) begin
+        rd_frame <= rd_frame + 1;
+        if (rd_frame >= `RD_FROM && rd_frame % 30 == 0)
+            $writememh($sformatf("ram_%04d.hex", rd_frame), main_ram.mem);
     end
 end
 `endif

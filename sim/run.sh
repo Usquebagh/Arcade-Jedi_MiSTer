@@ -20,8 +20,10 @@ verilator --cc --exe --build -j "$(nproc)" -O3 --x-assign fast --x-initial fast 
   -Mdir obj_dir ${JEDI_TRACE:+-DJEDI_TRACE} ${JEDI_TRACE_IO:+-DJEDI_TRACE_IO} \
   ${V_START:+-GV_START=$V_START} \
   ${PC_FROM:+-DJEDI_TRACE_PC -DPC_FROM=$PC_FROM -DPC_TO=$PC_TO} \
+  ${RD_FROM:+-DJEDI_RAMDUMP -DRD_FROM=$RD_FROM} \
   ${WATCH:+-DJEDI_WATCH -DW0=16\'h${WATCH:0:4} -DW1=16\'h${WATCH:5:4} -DW2=16\'h${WATCH:10:4} -DW3=16\'h${WATCH:15:4}} \
   ../rtl/cpu6502/ALU.v ../rtl/cpu6502/cpu.v ../rtl/dpram.v ../rtl/jedi_timing.v ../rtl/pokey.v \
+  ../rtl/jedi_cheats.v \
   out/tms5220_gen.v ../rtl/jedi_core.v \
   sim_main.cpp > out/build.log 2>&1 || { tail -30 out/build.log; exit 1; }
 grep -E "%(Error|Warning)" out/build.log | grep -v "cpu6502" | head -20 || true

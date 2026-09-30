@@ -39,6 +39,8 @@ The **Yoke Controls** OSD page selects Analog Stick, Mouse, Digital Centering, D
 
 **High scores:** turn on **Autosave NVRAM** in the OSD, or use **Save NVRAM**.
 
+**Cheats:** Infinite Lives and Invincibility are available from the OSD **Cheats** menu.
+
 ---
 
 ## ROMs
@@ -65,6 +67,8 @@ Quartus Prime Lite 17.0 targeting the DE10-Nano's Cyclone V. Open `Arcade-Jedi.q
 - **6502 CPU:** Arlet Ottens
 - **TMS5220:** d18c7db
 - **Yoke input:** Videodr0me ([Star Wars core](https://github.com/Videodr0me/Arcade-StarWars_MiSTer))
+- **Cheat engine:** based on Kitrinx's MiSTer cheat code handling, via Martin Donlon's Irem M92 core
+- **Cheats:** converted from the MAME cheat file at [mamecheat.co.uk](https://www.mamecheat.co.uk)
 - **Reference:** MAME `jedi` driver by Dan Boris and Aaron Giles
 - **MiSTer Platform:** Sorgelig and the MiSTer community
 

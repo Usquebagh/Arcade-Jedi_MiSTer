@@ -58,6 +58,8 @@ localparam CONF_STR = {
 	"P1O[20:18],Digital Speed,1.0x,0.75x,0.5x,0.25x,0.125x,1.25x,1.5x,2.0x;",
 	"P1O[14],Y-Axis,Normal,Inverted;",
 	"-;",
+	"C,Cheats;",
+	"-;",
 	"O[6],Service Mode,Off,On;",
 	"O[17],Autosave NVRAM,Off,On;",
 	"T[16],Save NVRAM;",
@@ -133,6 +135,19 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
 wire rom_download   = ioctl_download && ioctl_index == 0;
 wire nvram_download = ioctl_download && ioctl_index == 4;
+wire code_download  = ioctl_download && ioctl_index == 255;
+
+// Cheat codes from the MRA <cheats> section: 16 bytes per code, shifted in MSB first;
+// bit 128 strobes each complete code into the engine (as in the Irem M92 core).
+reg [128:0] cheat_code = 0;
+always @(posedge clk_sys) begin
+	cheat_code[128] <= 1'b0;
+	if (code_download & ioctl_wr) begin
+		cheat_code[127:0] <= {cheat_code[119:0], ioctl_dout};
+		cheat_code[128]   <= &ioctl_addr[3:0];
+	end
+end
+wire cheat_reset = code_download && ioctl_wr && ioctl_addr == 0;
 wire reset = RESET | status[0] | buttons[1] | rom_download | nvram_download;
 
 ////////////////////   INPUTS   ///////////////////
@@ -224,6 +239,9 @@ jedi_core core
 	.nv_we(ioctl_wr & nvram_download),
 	.nv_dout(nv_dout),
 	.nv_changed(nv_changed),
+
+	.cheat_code(cheat_code),
+	.cheat_reset(cheat_reset),
 
 	.dbg_main_ab(),
 	.dbg_snd_ab(),

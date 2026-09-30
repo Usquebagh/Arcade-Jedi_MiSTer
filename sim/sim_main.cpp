@@ -5,11 +5,14 @@
 //   DUMP_FROM=n          also dump every frame from n on
 //   INPUTS=f:v,f:v,...   from frame f, drive the 0C00 switch byte with hex value v
 //   YOKE=f:x:y,...       from frame f, drive the ADC X/Y values (hex)
+//   CHEATS=code,code     cheat codes as in the MRA (32 hex digits each, spaces allowed)
 // Audio is written to audio.raw (signed 16-bit mono, 48 kHz).
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <string>
+#include <cctype>
 #include "Vjedi_core.h"
 #include "verilated.h"
 
@@ -70,6 +73,27 @@ int main(int argc, char **argv) {
 
     top->reset = 1;
     for (int i = 0; i < 200; i++) { top->clk = 0; top->eval(); top->clk = 1; top->eval(); }
+
+    // Load cheat codes (while still in reset): pulse cheat_reset, then strobe each code
+    if (const char *s = getenv("CHEATS")) {
+        auto tick = [&]() { top->clk = 0; top->eval(); top->clk = 1; top->eval(); };
+        top->cheat_reset = 1; tick(); top->cheat_reset = 0; tick();
+        std::string all(s);
+        size_t start = 0;
+        while (start < all.size()) {
+            size_t end = all.find(',', start);
+            if (end == std::string::npos) end = all.size();
+            std::string hex;
+            for (size_t i = start; i < end; i++) if (isxdigit((unsigned char)all[i])) hex += all[i];
+            if (hex.size() == 32) {
+                for (int w = 0; w < 4; w++)   // word 3 = first 8 hex digits (bits 127:96)
+                    top->cheat_code[3 - w] = (uint32_t)strtoul(hex.substr(w * 8, 8).c_str(), nullptr, 16);
+                top->cheat_code[4] = 1; tick(); top->cheat_code[4] = 0; tick();
+                printf("cheat loaded: %s\n", hex.c_str());
+            }
+            start = end + 1;
+        }
+    }
     top->reset = 0;
 
     while (frame < frames) {

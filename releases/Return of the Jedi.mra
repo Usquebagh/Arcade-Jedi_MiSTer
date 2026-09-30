@@ -53,4 +53,18 @@
 	</rom>
 
 	<nvram index="4" size="256"></nvram>
+
+	<!-- Cheats converted from the MAME cheat file (https://www.mamecheat.co.uk).
+	     Format: flags(4) address(4) compare(4) value(4); applied to main CPU reads. -->
+	<cheats>
+		<cheat name="Infinite Lives">000000 10 00000013 00000000 0000009A</cheat>
+		<cheat name="Invincibility">
+			000000 10 0000A976 00000000 00000060
+			000000 10 0000A9FD 00000000 00000060
+			000000 10 0000A9F0 00000000 00000060
+			000000 10 0000A8EA 00000000 0000004C
+			000000 10 0000A8EB 00000000 00000011
+			000000 10 0000A8EC 00000000 000000A8
+		</cheat>
+	</cheats>
 </misterromdescription>
