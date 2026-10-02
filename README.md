@@ -41,7 +41,11 @@ The **Yoke Controls** OSD page selects Analog Stick, Mouse, Digital Centering, D
 Settings changed in Service Mode (lives, difficulty, coinage) are kept the same way.
 
 **Yoke readout:** *Yoke Controls → Show Yoke X/Y* shows how far the yoke is from centre at the
-bottom of the screen.
+bottom of the screen (`X+000 Y+000` = centred; about ±112 at full deflection).
+
+**Known issue:** at the start of the first game the bike can pull hard to the left even though the
+readout shows the stick centred. Push right briefly and it recovers; after that the controls behave
+normally. Still being investigated.
 
 **Cheats:** Infinite Lives and Invincibility are available from the OSD **Cheats** menu.
 
