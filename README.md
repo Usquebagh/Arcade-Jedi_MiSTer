@@ -4,6 +4,8 @@ An FPGA implementation of Atari's **Return of the Jedi** arcade game for the [Mi
 
 Atari's third Star Wars arcade game swapped vectors for colourful raster graphics: race speeder bikes through the forests of Endor, fly the Millennium Falcon, and pilot an AT-ST — all in a diagonal, scrolling 3D view with a distinctive soft, "smoothed" look.
 
+<p align="center"><img src="docs/flyer.jpg" alt="Return of the Jedi arcade flyer" width="480"></p>
+
 > **Known issue:** when the first game starts, the bike steers hard to the left on its own. Push the stick right for a moment and it corrects itself; after that the game plays normally. Feedback and bug reports are welcome via [Issues](https://github.com/Usquebagh/Arcade-Jedi_MiSTer/issues).
 
 ---
