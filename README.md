@@ -2,11 +2,11 @@
 
 An FPGA implementation of Atari's **Return of the Jedi** arcade game for the [MiSTer FPGA](https://github.com/MiSTer-devel/Main_MiSTer/wiki) platform.
 
-Atari's third Star Wars arcade game swapped vectors for colourful raster graphics: race speeder bikes through the forests of Endor, fly the Millennium Falcon, and pilot an AT-ST — all in a diagonal, scrolling 3D view with a distinctive soft, "smoothed" look.
+Atari's third Star Wars arcade game swapped vectors for colourful raster graphics: race speeder bikes through the forests of Endor, fly the Millennium Falcon, and pilot an AT-ST â€” all in a diagonal, scrolling 3D view with a distinctive soft, "smoothed" look.
 
 <p align="center">
   <img src="docs/flyer.jpg" alt="Return of the Jedi arcade flyer" height="310">
-  <img src="docs/screenshot.png" alt="Return of the Jedi running on MiSTer" height="310">
+  <img src="docs/title.png" alt="Return of the Jedi running on MiSTer" height="310">
 </p>
 
 > **Known issue:** when the first game starts, the bike steers hard to the left on its own. Push the stick right for a moment and it corrects itself; after that the game plays normally. Feedback and bug reports are welcome via [Issues](https://github.com/Usquebagh/Arcade-Jedi_MiSTer/issues).
@@ -23,7 +23,7 @@ Atari's third Star Wars arcade game swapped vectors for colourful raster graphic
 | **Smoothing** | PIXI II board: two 82S137 PROMs + line buffer blend each background pixel with its neighbours | Modelled in `jedi_core.v` |
 | **Sound** | Quad POKEY custom + TI TMS5220 speech | `pokey.v` + d18c7db's TMS5220 |
 | **Controls** | Flight yoke (2-axis analog) + trigger and thumb buttons | Analog stick, mouse, or d-pad |
-| **NOVRAM** | 2 × X2212 (high scores, settings) | Saved to the SD card via MiSTer NVRAM |
+| **NOVRAM** | 2 Ã— X2212 (high scores, settings) | Saved to the SD card via MiSTer NVRAM |
 
 Notes on the hardware and design decisions are in [docs/hardware.md](docs/hardware.md).
 
@@ -34,7 +34,7 @@ Notes on the hardware and design decisions are in [docs/hardware.md](docs/hardwa
 | Input | Function |
 |---|---|
 | **Analog Stick** | Yoke |
-| **A** | Trigger — fires, and starts the game after inserting a coin |
+| **A** | Trigger â€” fires, and starts the game after inserting a coin |
 | **B / X** | Left / right thumb buttons |
 | **Select / R** | Coin L / Coin R |
 
@@ -45,8 +45,8 @@ The **Yoke Controls** OSD page selects Analog Stick, Mouse, Digital Centering, D
 **High scores and game settings:** turn on **Autosave NVRAM** in the OSD, or use **Save NVRAM**.
 Settings changed in Service Mode (lives, difficulty, coinage) are kept the same way.
 
-**Yoke readout:** *Yoke Controls → Show Yoke X/Y* shows how far the yoke is from centre at the
-bottom of the screen (`X+000 Y+000` = centred; about ±112 at full deflection).
+**Yoke readout:** *Yoke Controls â†’ Show Yoke X/Y* shows how far the yoke is from centre at the
+bottom of the screen (`X+000 Y+000` = centred; about Â±112 at full deflection).
 
 **Known issue:** at the start of the first game the bike can pull hard to the left even though the
 readout shows the stick centred. Push right briefly and it recovers; after that the controls behave
@@ -76,7 +76,7 @@ Quartus Prime Lite 17.0 targeting the DE10-Nano's Cyclone V. Open `Arcade-Jedi.q
 
 ## Credits
 
-- **Return of the Jedi (Arcade):** Dennis Harper (design / programming), Susan G. McBride (graphics), Synthia Petroka (audio), Mike Mahar (software support) — Atari, 1984
+- **Return of the Jedi (Arcade):** Dennis Harper (design / programming), Susan G. McBride (graphics), Synthia Petroka (audio), Mike Mahar (software support) â€” Atari, 1984
 - **6502 CPU:** Arlet Ottens
 - **TMS5220:** d18c7db
 - **Yoke input:** Videodr0me ([Star Wars core](https://github.com/Videodr0me/Arcade-StarWars_MiSTer))
