@@ -17,6 +17,7 @@ verilator --cc --exe --build -j "$(nproc)" -O3 --x-assign fast --x-initial fast 
   -GBG1_ROM_INIT='"roms/bg1.hex"' -GBG2_ROM_INIT='"roms/bg2.hex"' \
   -GSPR1_ROM_INIT='"roms/spr1.hex"' -GSPR2_ROM_INIT='"roms/spr2.hex"' \
   -GPROM1_INIT='"roms/prom1.hex"' -GPROM2_INIT='"roms/prom2.hex"' \
+  -GNOVRAM_INIT='"../../rtl/novram_init.hex"' \
   -Mdir obj_dir ${JEDI_TRACE:+-DJEDI_TRACE} ${JEDI_TRACE_IO:+-DJEDI_TRACE_IO} \
   ${V_START:+-GV_START=$V_START} \
   ${PC_FROM:+-DJEDI_TRACE_PC -DPC_FROM=$PC_FROM -DPC_TO=$PC_TO} \

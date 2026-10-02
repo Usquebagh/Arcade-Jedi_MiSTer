@@ -37,7 +37,11 @@ The **Yoke Controls** OSD page selects Analog Stick, Mouse, Digital Centering, D
 
 **Service Mode:** set it On in the OSD and choose Reset to enter Atari's self-test; set it Off and Reset to return to the game.
 
-**High scores:** turn on **Autosave NVRAM** in the OSD, or use **Save NVRAM**.
+**High scores and game settings:** turn on **Autosave NVRAM** in the OSD, or use **Save NVRAM**.
+Settings changed in Service Mode (lives, difficulty, coinage) are kept the same way.
+
+**Yoke readout:** *Yoke Controls → Show Yoke X/Y* shows how far the yoke is from centre at the
+bottom of the screen.
 
 **Cheats:** Infinite Lives and Invincibility are available from the OSD **Cheats** menu.
 

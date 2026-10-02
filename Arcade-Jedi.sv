@@ -57,6 +57,7 @@ localparam CONF_STR = {
 	"P1O[13:11],Analog Sensitivity,1.0x,0.75x,0.5x,0.25x,0.125x,1.25x,1.5x,2.0x;",
 	"P1O[20:18],Digital Speed,1.0x,0.75x,0.5x,0.25x,0.125x,1.25x,1.5x,2.0x;",
 	"P1O[14],Y-Axis,Normal,Inverted;",
+	"P1O[21],Show Yoke X/Y,Off,On;",
 	"-;",
 	"C,Cheats;",
 	"-;",
@@ -202,6 +203,7 @@ wire [7:0] adc_y = yoke_to_adc(yoke_y);
 
 wire [7:0] r, g, b;
 wire       hs, vs, hbl, vbl, ce_pix;
+wire [8:0] pix_h, pix_v;
 wire signed [15:0] audio;
 
 wire [7:0] nv_dout;
@@ -225,8 +227,8 @@ jedi_core core
 	.hblank(hbl),
 	.vblank(vbl),
 	.ce_pix(ce_pix),
-	.vid_h(),
-	.vid_v(),
+	.vid_h(pix_h),
+	.vid_v(pix_v),
 
 	.audio(audio),
 
@@ -263,12 +265,35 @@ assign ioctl_din = nv_dout;
 
 ////////////////////   VIDEO / AUDIO   ///////////////////
 
+// Optional yoke readout (OSD: Yoke Controls > Show Yoke X/Y)
+// Its output is registered, and arcade_video samples one clock later to match
+// (the core's video outputs are stable for 8 clocks per pixel).
+wire [23:0] rgb_ovl;
+reg  [23:0] rgb_ovl_r = 0;
+reg         ce_pix_d = 0;
+always @(posedge clk_sys) begin
+	rgb_ovl_r <= rgb_ovl;
+	ce_pix_d  <= ce_pix;
+end
+
+yoke_overlay yoke_ovl
+(
+	.clk(clk_sys),
+	.enable(status[21]),
+	.h(pix_h),
+	.v(pix_v),
+	.adc_x(adc_x),
+	.adc_y(adc_y),
+	.rgb_in({r, g, b}),
+	.rgb_out(rgb_ovl)
+);
+
 arcade_video #(296, 24) arcade_video
 (
 	.clk_video(clk_sys),
-	.ce_pix(ce_pix),
+	.ce_pix(ce_pix_d),
 
-	.RGB_in({r, g, b}),
+	.RGB_in(rgb_ovl_r),
 	.HBlank(hbl),
 	.VBlank(vbl),
 	.HSync(hs),

@@ -171,9 +171,22 @@ Analogue flight yoke → ADC0809 channels (Y on 0, X on 2), centre 0x80. Three b
   ways. The core pre-loads a valid centred calibration (`$11/$EF`, checksum `$02`) and
   scales the MiSTer yoke to `$10–$EF` so the calibration cannot drift off-centre.
 
+## NOVRAM (2 × X2212)
+
+Each X2212 is a 256 × 4 static RAM shadowed by an EEPROM. The CPU only ever sees the RAM.
+- **STORE** (`1D00`) copies RAM → EEPROM; **RECALL** (`1C00` write, and at power-up) copies
+  EEPROM → RAM. `1C01` releases recall.
+- The game **depends on this**: the service-mode hardware test overwrites the NOVRAM RAM with
+  test patterns (ending in zeros) and recalls afterwards; game options are made permanent with
+  STORE (routine `F6AE` → `$0855/$0856`, checksum `$085D`).
+- Without the EEPROM half, the self-test permanently wipes settings — and all-zero data passes the
+  calibration checksum, which brings back the stuck-yoke problem above.
+- The core models both halves (`rtl/jedi_core.v`); copies take ~260 clocks with the main CPU held.
+  The MiSTer saves/loads the EEPROM half (MRA `<nvram index="4">`), autosaving after a STORE.
+
 ## Open questions
 
 1. 9H sync PROM contents → exact VBLANK/VSYNC/line count (assume 262/240).
 2. Exact HBLANK/HSYNC positions and sprite X/Y offsets relative to the counters.
 3. Quad-POKEY custom vs 4 discrete POKEYs — assume identical to 4 × POKEY (MAME does).
-4. X2212 NOVRAM store/recall semantics → the MiSTer saves the whole array instead.
+4. X2212 timing (store ~10 ms on the real part) is not modelled; copies are near-instant.

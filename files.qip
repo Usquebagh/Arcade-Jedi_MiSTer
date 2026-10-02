@@ -4,6 +4,7 @@ set_global_assignment -name VERILOG_FILE rtl/dpram.v
 set_global_assignment -name VERILOG_FILE rtl/jedi_timing.v
 set_global_assignment -name VERILOG_FILE rtl/pokey.v
 set_global_assignment -name VERILOG_FILE rtl/jedi_cheats.v
+set_global_assignment -name VERILOG_FILE rtl/yoke_overlay.v
 set_global_assignment -name VHDL_FILE rtl/tms5220/TMS5220.vhd
 set_global_assignment -name VERILOG_FILE rtl/jedi_core.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/starwars_yoke_input.sv

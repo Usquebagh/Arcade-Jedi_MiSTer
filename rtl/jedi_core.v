@@ -24,7 +24,8 @@ module jedi_core #(
     parameter SPR2_ROM_INIT  = "",   // 136030-128 + -129
     parameter PROM1_INIT     = "",   // 136030-117 (horizontal smoothing)
     parameter PROM2_INIT     = "",   // 136030-118 (vertical smoothing)
-    parameter V_START        = 16    // first visible counter line (see jedi_timing.v)
+    parameter V_START        = 16,   // first visible counter line (see jedi_timing.v)
+    parameter NOVRAM_INIT    = "rtl/novram_init.hex"   // X2212 EEPROM defaults
 ) (
     input            clk,           // 48.384 MHz
     input            reset,
@@ -60,8 +61,8 @@ module jedi_core #(
     input      [7:0] nv_addr,
     input      [7:0] nv_din,
     input            nv_we,
-    output reg [7:0] nv_dout,
-    output           nv_changed,     // pulses when the game writes NOVRAM
+    output     [7:0] nv_dout,        // reads the EEPROM half (see NOVRAM below)
+    output           nv_changed,     // pulses when the game STOREs to the EEPROM
 
     // Cheats (MiSTer ioctl index 255): codes applied to main CPU reads
     input    [128:0] cheat_code,
@@ -82,12 +83,15 @@ reg [15:0] macc = 0;
 wire [16:0] macc_next = {1'b0, macc} + 17'd2500;
 wire ce_pix_int = pdiv == 3'd7;
 wire ce_snd     = sdiv == 5'd31;
-wire ce_main    = macc_next >= 17'd48384;
+reg  [1:0] nv_op = 0;              // NOVRAM copy in progress: 0 idle, 1 store, 2 recall
+wire       nv_busy = nv_op != 0;
+wire ce_main_t  = macc_next >= 17'd48384;
+wire ce_main    = ce_main_t & ~nv_busy;   // main CPU waits while the NOVRAM copies
 
 always @(posedge clk) begin
     pdiv <= pdiv + 3'd1;
     sdiv <= sdiv + 5'd1;
-    macc <= ce_main ? macc_next[15:0] - 16'd48384 : macc_next[15:0];
+    macc <= ce_main_t ? macc_next[15:0] - 16'd48384 : macc_next[15:0];
 end
 
 assign ce_pix = pdiv == 3'd0;   // one clock after outputs update
@@ -159,32 +163,65 @@ dpram #(.AW(11)) main_ram (
     .b_addr(11'd0), .b_din(8'd0), .b_we(1'b0), .b_dout()
 );
 
-// NOVRAM (2 x X2212, 256 x 4 each). Store/recall not modelled; the MiSTer saves the
-// whole array instead. Power-on contents follow MAME (0x0F fill, 0x50-0x5F zero) so the
-// game's checksums fail and it installs defaults - except for the yoke calibration block
-// (57-5A: X min/max, Y min/max; checksum at 5E, routine DF38). All-zero data has a
-// valid checksum there, so MAME's fill makes the game load min = max = 0: the centre
-// sits at 0 and the steering window wraps (bike stuck, left/right dead) until the
-// stick has been swept both ways. Pre-load a valid, centred calibration instead,
-// matching the 0x10-0xEF range the MiSTer yoke is scaled to.
-reg [7:0] novram [0:255];
-reg [7:0] m_nov_q;
-integer i;
-initial begin
-    for (i = 0; i < 256; i = i + 1) novram[i] = (i >= 8'h50 && i < 8'h60) ? 8'h00 : 8'h0f;
-    novram[8'h57] = 8'h11;  novram[8'h58] = 8'hEF;   // X min / max
-    novram[8'h59] = 8'h11;  novram[8'h5A] = 8'hEF;   // Y min / max
-    novram[8'h5E] = 8'h02;                           // checksum (DF38)
-end
+// NOVRAM: 2 x X2212 (256 x 4 each, together 256 x 8). Each X2212 is a static RAM (what
+// the CPU reads and writes) shadowed by an EEPROM:
+//   STORE  (write 1D00)        copies RAM -> EEPROM
+//   RECALL (write 1C00, reset) copies EEPROM -> RAM
+// The game relies on this: the self-test overwrites the RAM half and recalls afterwards,
+// and option changes are made permanent with STORE. The MiSTer saves/loads the EEPROM.
+// The main CPU is held for the ~260 clocks (5 us) a copy takes.
+//
+// EEPROM defaults (rtl/novram_init.hex) start from MAME's fill (0x0F, 0x50-0x5F zero),
+// but all-zero data has a *valid* checksum in the small blocks, so:
+//  - stats (50-54, checksum 5C) and options (55-56, checksum 5D) get checksum FF, making
+//    the game install its own factory settings on first boot;
+//  - the yoke calibration (57-5A: X min/max, Y min/max; checksum 5E, routine DF38) gets a
+//    valid centred 11/EF (checksum 02). With zeros the game loads min = max = 0, the
+//    steering window wraps and the bike sticks until the stick is swept both ways.
+//    11/EF matches the 0x10-0xEF range the MiSTer yoke is scaled to.
+reg  [8:0] nv_cnt = 0;           // nv_op / nv_busy are declared with the clock enables
+// Copy pipeline: while nv_cnt = k the source RAM is addressed with k, and its registered
+// output holds byte k-1, which is written to the destination at address k-1.
+wire [7:0] nv_cpy_rd = nv_cnt[7:0];
+wire [8:0] nv_cnt_m1 = nv_cnt - 9'd1;
+wire [7:0] nv_cpy_wr = nv_cnt_m1[7:0];
+wire       nv_cpy_we = nv_busy && nv_cnt >= 9'd1;
+wire [7:0] nv_sram_b_q, nv_eep_a_q;
+wire [7:0] m_nov_q;
+
+dpram #(.AW(8)) novram_sram (
+    .clk(clk),
+    .a_addr(m_ab[7:0]), .a_din(m_do), .a_we(m_wr & m_sel_nov), .a_dout(m_nov_q),
+    .b_addr(nv_op == 2'd2 ? nv_cpy_wr : nv_cpy_rd), .b_din(nv_eep_a_q),
+    .b_we(nv_op == 2'd2 && nv_cpy_we), .b_dout(nv_sram_b_q)
+);
+dpram #(.AW(8), .INIT(NOVRAM_INIT)) novram_eeprom (
+    .clk(clk),
+    .a_addr(nv_op == 2'd1 ? nv_cpy_wr : nv_cpy_rd), .a_din(nv_sram_b_q),
+    .a_we(nv_op == 2'd1 && nv_cpy_we), .a_dout(nv_eep_a_q),
+    .b_addr(nv_addr), .b_din(nv_din), .b_we(nv_we), .b_dout(nv_dout)   // MiSTer save/load
+);
+
+reg reset_last = 1;
+wire nv_store_req  = m_wr & m_sel_ctl & (m_ab[9:7] == 3'b010);              // 1D00
+wire nv_recall_req = (m_wr & m_sel_ctl & (m_ab[9:7] == 3'b000) & ~m_ab[0])  // 1C00
+                   | (reset_last & ~reset);                                 // end of reset
+reg nv_stored = 0;
 always @(posedge clk) begin
-    if (m_wr & m_sel_nov) novram[m_ab[7:0]] <= m_do;
-    m_nov_q <= novram[m_ab[7:0]];
+    reset_last <= reset;
+    nv_stored  <= 0;
+    if (nv_busy) begin
+        nv_cnt <= nv_cnt + 9'd1;
+        if (nv_cnt == 9'd256) begin      // byte 255 written on this clock
+            nv_stored <= nv_op == 2'd1;
+            nv_op <= 0;
+        end
+    end else if (nv_store_req | nv_recall_req) begin
+        nv_op  <= nv_store_req ? 2'd1 : 2'd2;
+        nv_cnt <= 0;
+    end
 end
-always @(posedge clk) begin                     // second port: MiSTer NVRAM save/load
-    if (nv_we) novram[nv_addr] <= nv_din;
-    nv_dout <= novram[nv_addr];
-end
-assign nv_changed = m_wr & m_sel_nov;
+assign nv_changed = nv_stored;   // EEPROM updated -> MiSTer autosave
 
 // ROM download decode
 wire [18:0] dn_snd_a  = dn_addr - 19'h14000;

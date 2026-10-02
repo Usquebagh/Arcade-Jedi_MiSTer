@@ -6,6 +6,7 @@
 //   INPUTS=f:v,f:v,...   from frame f, drive the 0C00 switch byte with hex value v
 //   YOKE=f:x:y,...       from frame f, drive the ADC X/Y values (hex)
 //   CHEATS=code,code     cheat codes as in the MRA (32 hex digits each, spaces allowed)
+//   RESET_AT=f           soft-reset the core at frame f (as the MiSTer OSD Reset does)
 // Audio is written to audio.raw (signed 16-bit mono, 48 kHz).
 #include <cstdio>
 #include <cstdlib>
@@ -31,6 +32,8 @@ int main(int argc, char **argv) {
     int every  = argc > 2 ? atoi(argv[2]) : 10;
     bool test  = argc > 3 && !strcmp(argv[3], "test");
     int from   = getenv("DUMP_FROM") ? atoi(getenv("DUMP_FROM")) : 1 << 30;   // dump every frame from here
+    int reset_at = getenv("RESET_AT") ? atoi(getenv("RESET_AT")) : -1;
+    int reset_clocks = 0;
 
     Vjedi_core *top = new Vjedi_core;
     top->in0   = test ? 0xef : 0xff;   // all switches released; b4 = /self-test
@@ -100,6 +103,7 @@ int main(int argc, char **argv) {
         top->clk = 0; top->eval();
         top->clk = 1; top->eval();
         cycles++;
+        if (reset_clocks > 0 && --reset_clocks == 0) top->reset = 0;
 
         // 48 kHz audio: 48.384 MHz / 1008, box-filtered
         audio_acc += (int16_t)top->audio;
@@ -118,6 +122,11 @@ int main(int argc, char **argv) {
             frame++;
             while (next_input < script.size() && script[next_input].first <= frame)
                 top->in0 = script[next_input++].second;
+            if (frame == reset_at) {
+                top->reset = 1;
+                reset_clocks = 2000;
+                printf("soft reset at frame %d\n", frame);
+            }
             while (next_yoke < yoke.size() && yoke[next_yoke].frame <= frame) {
                 top->adc_x = yoke[next_yoke].x;
                 top->adc_y = yoke[next_yoke].y;
